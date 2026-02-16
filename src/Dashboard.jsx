@@ -52,11 +52,11 @@ function generateSimMarkets(count = 8) {
     const mid = 20 + Math.random() * 60;
     const spread = 2 + Math.random() * 8;
     const yesBid = Math.max(1, Math.round(mid - spread / 2));
-    const noAsk = Math.max(1, Math.round(100 - mid - spread / 2));
+    const noBid = Math.max(1, Math.round(100 - mid - spread / 2));
     return {
       ticker: `${types[i]}-SIM`, title: titles[i], yesBid,
       yesAsk: Math.min(99, yesBid + Math.round(spread)),
-      noBid: noAsk, noAsk: Math.min(99, noAsk + Math.round(spread)),
+      noBid, noAsk: Math.min(99, noBid + Math.round(spread)),
       mid: Math.round(mid), spread: Math.round(spread),
       volume: Math.round(500 + Math.random() * 50000), status: "open",
     };
@@ -293,6 +293,8 @@ export default function Dashboard() {
     balance: 10000, totalPnl: 0, positions: {}, closedTrades: [],
     equityCurve: [0], totalFees: 0,
   });
+  const portfolioRef = useRef(portfolio);
+  useEffect(() => { portfolioRef.current = portfolio; }, [portfolio]);
 
   const [valueParams, setValueParams] = useState({ threshold: 8, maxContracts: 5, minConfidence: 0.3 });
   const [mmParams, setMmParams] = useState({ spread: 6, size: 2 });
@@ -417,6 +419,8 @@ export default function Dashboard() {
         });
 
         let placed = 0, rejected = 0;
+        const currentPortfolio = portfolioRef.current;
+        const dailyLoss = currentPortfolio.totalPnl < 0 ? Math.abs(currentPortfolio.totalPnl) : 0;
         const checkedSignals = newSignals.map((sig) => {
           const cost = sig.price * sig.count;
           if (cost > riskParams.maxExposure) {
@@ -426,6 +430,18 @@ export default function Dashboard() {
           if (sig.confidence < valueParams.minConfidence && activeStrategy !== "mm") {
             rejected++;
             return { ...sig, status: "REJECTED", rejectReason: "Low confidence" };
+          }
+          // Check max position per market
+          const posKey = `${sig.ticker}-${sig.side}`;
+          const existingPos = currentPortfolio.positions[posKey];
+          if (existingPos && existingPos.count >= riskParams.maxPositionPerMarket) {
+            rejected++;
+            return { ...sig, status: "REJECTED", rejectReason: "Position limit" };
+          }
+          // Check daily loss limit
+          if (dailyLoss >= riskParams.maxDailyLoss) {
+            rejected++;
+            return { ...sig, status: "REJECTED", rejectReason: "Daily loss limit" };
           }
           placed++;
           return { ...sig, status: "APPROVED" };
