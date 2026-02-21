@@ -1,13 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
 // ── CONFIG ──────────────────────────────────────────────────────────
-// Set this to your Railway backend URL once deployed, e.g. "https://kalshi-backend-production.up.railway.app"
-// Leave empty to auto-detect or fall back to simulation mode
-const BACKEND_URL = "";
+// Option 1: Set VITE_BACKEND_URL at build time (e.g. in Railway/Render env vars)
+// Option 2: Hardcode your backend URL below after deploying
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
 function getBackendUrl() {
-  if (BACKEND_URL) return BACKEND_URL;
-  // In local dev, backend runs on :8000
+  if (BACKEND_URL) return BACKEND_URL.replace(/\/+$/, ""); // trim trailing slash
   if (window.location.hostname === "localhost") return "http://localhost:8000";
   return "";
 }
