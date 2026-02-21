@@ -52,11 +52,11 @@ function generateSimMarkets(count = 8) {
     const mid = 20 + Math.random() * 60;
     const spread = 2 + Math.random() * 8;
     const yesBid = Math.max(1, Math.round(mid - spread / 2));
-    const noAsk = Math.max(1, Math.round(100 - mid - spread / 2));
+    const noBid = Math.max(1, Math.round(100 - mid - spread / 2));
     return {
       ticker: `${types[i]}-SIM`, title: titles[i], yesBid,
       yesAsk: Math.min(99, yesBid + Math.round(spread)),
-      noBid: noAsk, noAsk: Math.min(99, noAsk + Math.round(spread)),
+      noBid, noAsk: Math.min(99, noBid + Math.round(spread)),
       mid: Math.round(mid), spread: Math.round(spread),
       volume: Math.round(500 + Math.random() * 50000), status: "open",
     };
@@ -293,6 +293,8 @@ export default function Dashboard() {
     balance: 10000, totalPnl: 0, positions: {}, closedTrades: [],
     equityCurve: [0], totalFees: 0,
   });
+  const portfolioRef = useRef(portfolio);
+  useEffect(() => { portfolioRef.current = portfolio; }, [portfolio]);
 
   const [valueParams, setValueParams] = useState({ threshold: 8, maxContracts: 5, minConfidence: 0.3 });
   const [mmParams, setMmParams] = useState({ spread: 6, size: 2 });
@@ -417,6 +419,8 @@ export default function Dashboard() {
         });
 
         let placed = 0, rejected = 0;
+        const currentPortfolio = portfolioRef.current;
+        const dailyLoss = currentPortfolio.totalPnl < 0 ? Math.abs(currentPortfolio.totalPnl) : 0;
         const checkedSignals = newSignals.map((sig) => {
           const cost = sig.price * sig.count;
           if (cost > riskParams.maxExposure) {
@@ -426,6 +430,18 @@ export default function Dashboard() {
           if (sig.confidence < valueParams.minConfidence && activeStrategy !== "mm") {
             rejected++;
             return { ...sig, status: "REJECTED", rejectReason: "Low confidence" };
+          }
+          // Check max position per market
+          const posKey = `${sig.ticker}-${sig.side}`;
+          const existingPos = currentPortfolio.positions[posKey];
+          if (existingPos && existingPos.count >= riskParams.maxPositionPerMarket) {
+            rejected++;
+            return { ...sig, status: "REJECTED", rejectReason: "Position limit" };
+          }
+          // Check daily loss limit
+          if (dailyLoss >= riskParams.maxDailyLoss) {
+            rejected++;
+            return { ...sig, status: "REJECTED", rejectReason: "Daily loss limit" };
           }
           placed++;
           return { ...sig, status: "APPROVED" };
@@ -583,7 +599,7 @@ export default function Dashboard() {
       </div>
 
       {/* P&L banner */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: "12px", marginBottom: "20px" }}>
+      <div className="pnl-grid" style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: "12px", marginBottom: "20px" }}>
         {[
           { label: "TOTAL P&L", value: `${lastEquity >= 0 ? "+" : ""}${(lastEquity / 100).toFixed(2)}`, unit: "$", color: lastEquity >= 0 ? "#22c55e" : "#ef4444" },
           { label: "REALIZED", value: `${portfolio.totalPnl >= 0 ? "+" : ""}${(portfolio.totalPnl / 100).toFixed(2)}`, unit: "$", color: portfolio.totalPnl >= 0 ? "#22c55e" : "#ef4444" },
@@ -605,7 +621,7 @@ export default function Dashboard() {
       </Panel>
 
       {/* Main grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "300px 1fr", gap: "16px" }}>
+      <div className="main-grid" style={{ display: "grid", gridTemplateColumns: "300px 1fr", gap: "16px" }}>
         {/* Left panel */}
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           <Panel title="STRATEGY">
@@ -727,8 +743,8 @@ export default function Dashboard() {
         {/* Right panel */}
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           <Panel title={`MARKETS${mode === "live" ? " (LIVE)" : " (SIMULATED)"} — ${markets.length} active`}>
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+              <table style={{ width: "100%", minWidth: "700px", borderCollapse: "collapse" }}>
                 <thead>
                   <tr style={{ borderBottom: "1px solid #1e293b" }}>
                     {["TICKER", "TITLE", "YES BID", "YES ASK", "MID", "SPREAD", "TREND", "VOL"].map((h) => (
@@ -821,6 +837,14 @@ export default function Dashboard() {
         ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
         input[type="range"] { -webkit-appearance: none; appearance: none; height: 4px; background: #1e293b; border-radius: 2px; outline: none; }
         input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #22d3ee; cursor: pointer; border: 2px solid #0a0e17; }
+        input[type="range"]:active { height: 6px; }
+        @media (max-width: 768px) {
+          .pnl-grid { grid-template-columns: repeat(3, 1fr) !important; gap: 8px !important; }
+          .main-grid { grid-template-columns: 1fr !important; }
+        }
+        @media (max-width: 480px) {
+          .pnl-grid { grid-template-columns: repeat(2, 1fr) !important; }
+        }
       `}</style>
     </div>
   );
